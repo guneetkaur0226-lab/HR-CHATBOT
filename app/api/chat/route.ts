@@ -66,21 +66,31 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents,
-          generationConfig: { maxOutputTokens: 500, temperature: 0.4 },
-        }),
-      }
-    );
+    async function callGemini(authHeaders: Record<string, string>) {
+      return fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            contents,
+            generationConfig: { maxOutputTokens: 500, temperature: 0.4 },
+          }),
+        }
+      );
+    }
+
+    // Google now issues two key formats: legacy "AIza..." standard keys and
+    // newer "AQ...." authorization keys, which authenticate differently.
+    // Try Bearer auth first (works for AQ-format keys), and fall back to the
+    // x-goog-api-key header (the standard method for AIza-format keys) if
+    // that fails with an auth error.
+    let geminiRes = await callGemini({ Authorization: `Bearer ${apiKey}` });
+
+    if (geminiRes.status === 401 || geminiRes.status === 403) {
+      geminiRes = await callGemini({ "x-goog-api-key": apiKey });
+    }
 
     if (!geminiRes.ok) {
       const errBody = await geminiRes.text();
